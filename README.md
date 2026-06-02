@@ -46,3 +46,25 @@ The goal is to cut the hours staff spend on intake that never converts, and let 
 ## Agent Architecture
 
 ReAct (Reasoning and Acting) design pattern:
+Client Query → Reason → Act (invoke tool) → Observe → Iterate → Intake Summary
+
+Three tools: Semantic Retrieval (RAG), Conflict Check, Case Routing. All tool calls and reasoning steps logged via MLflow.
+
+---
+
+## Repo Structure
+/
+├── data/       # DE: data pipeline notebook
+├── agent/      # AIE: agent definition + eval notebook
+├── eval/       # Trace outputs and MLflow artifacts
+├── slides/     # PM: presentation assets
+├── docs/
+│   └── scope.md
+└── README.md
+---
+
+## Submission
+
+Due: **June 22, 2026** | One teammate submits (Christina Sadiq)
+- GitHub repo zip
+- Video presentation (10-15 min)
