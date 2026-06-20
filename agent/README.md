@@ -1,7 +1,5 @@
 # Agent
 
-Owner: Nicole (AIE)
-
 This directory contains the agent implementation, helper library, and evaluation traces for the Agentic AI Systems final project (Part A). The agent follows a ReAct-style loop, defines and uses external tools, implements graceful rejection behavior, and records runs using MLflow. An LLM-based judge provides commentary on selected traces.
 
 ## Contents
