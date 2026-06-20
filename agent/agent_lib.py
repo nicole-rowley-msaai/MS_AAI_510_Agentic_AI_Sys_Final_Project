@@ -1,13 +1,12 @@
-
 """
 LexPath Agent Library.
  
 Single source of truth for the agent's tools, SYSTEM_PROMPT, and build_agent().
-Imported by 02a_build_agent, 03b_run_agent, and 04_evaluation:
+Imported by 02a_build_agent, 02b_run_agent, and 03_evaluation:
  
     import agent_lib
-    agent_lib.configure(catalog="main", schema="default", vs_endpoint="lexpath_vs_endpoint")
-    executor = agent_lib.build_agent("anthropic-claude-3-5-sonnet")
+    agent_lib.configure(catalog="workspace", schema="default", vs_endpoint="lexpath_vs_endpoint")
+    executor = agent_lib.build_agent("anthropic-claude-sonnet-4-6")
  
 Rules:
 - No dbutils, no widgets, no %pip, no demos — notebooks own all of that.
@@ -23,7 +22,10 @@ from pyspark.sql import SparkSession, functions as F
 from databricks.vector_search.client import VectorSearchClient
 from langchain_core.tools import tool
 from databricks_langchain import ChatDatabricks
-from langgraph.prebuilt import create_react_agent
+from langgraph.graph import StateGraph, END
+from typing import TypedDict, Annotated, Sequence
+import operator
+from langchain_core.messages import BaseMessage, ToolMessage
  
 TOP_K = 5  # provisions retrieved per query
  
@@ -37,6 +39,7 @@ ROUTING_TABLE = None
  
 _index = None
 _routing_map = None
+_conflicts = None       # in-memory copy of the (tiny) conflicts table, loaded in configure()
 _spark_session = None
  
  
@@ -52,7 +55,7 @@ def _spark() -> SparkSession:
 def configure(catalog: str, schema: str, vs_endpoint: str) -> None:
     """Bind the library to a catalog/schema and warm up shared clients."""
     global CATALOG, SCHEMA, VS_ENDPOINT, INDEX_NAME, CONFLICTS_TABLE, ROUTING_TABLE
-    global _index, _routing_map, _spark_session
+    global _index, _routing_map, _conflicts, _spark_session
  
     # Capture the active Spark session for use in tool execution contexts
     _spark_session = SparkSession.getActiveSession()
@@ -69,14 +72,17 @@ def configure(catalog: str, schema: str, vs_endpoint: str) -> None:
     _index = VectorSearchClient(disable_notice=True).get_index(
         endpoint_name=vs_endpoint, index_name=INDEX_NAME)
     _routing_map = {
-        r.category_label: r.practice_area
+        r.category: r.practice_area
         for r in _spark().table(ROUTING_TABLE).collect()
     }
-    print(f"agent_lib configured — index {INDEX_NAME}, {len(_routing_map)} routing labels")
+    # Conflicts table is tiny (~10 rows); load once so conflict_check needs no Spark at call time.
+    _conflicts = [r.asDict() for r in _spark().table(CONFLICTS_TABLE).collect()]
+    print(f"agent_lib configured — index {INDEX_NAME}, "
+          f"{len(_routing_map)} routing labels, {len(_conflicts)} conflict matters")
  
  
 def _require_configured():
-    if _index is None or _routing_map is None:
+    if _index is None or _routing_map is None or _conflicts is None:
         raise RuntimeError("Call agent_lib.configure(catalog, schema, vs_endpoint) first")
  
  
@@ -113,21 +119,17 @@ def conflict_check(party_names: str) -> str:
     Returns CLEARED or CONFLICT_FLAG with matching matter details as JSON. Only call
     this when the intake actually names specific people or companies."""
     _require_configured()
-    df = _spark().table(CONFLICTS_TABLE)
     hits = []
     for name in party_names.split(","):
         n = name.strip().lower()
         if len(n) < 3:
             continue
-        matched = df.filter(
-            (F.lower(F.col("client_name")).contains(n)) |
-            (F.lower(F.col("opposing_party")).contains(n))
-        ).collect()
-        hits.extend(
-            {"query": name.strip(), "matter_id": r.matter_id, "client": r.client_name,
-             "opposing_party": r.opposing_party, "status": r.status}
-            for r in matched
-        )
+        for r in _conflicts:
+            if n in r["client_name"].lower() or n in r["opposing_party"].lower():
+                hits.append(
+                    {"query": name.strip(), "matter_id": r["matter_id"], "client": r["client_name"],
+                     "opposing_party": r["opposing_party"], "status": r["status"]}
+                )
     return json.dumps({"result": "CONFLICT_FLAG" if hits else "CLEARED", "matches": hits})
  
  
@@ -191,23 +193,86 @@ def build_agent(endpoint_name: str, max_iterations: int = 8,
     """Construct the ReAct agent against any serving endpoint. Everything except the
     LLM is shared, so model comparisons are apples-to-apples by construction."""
     _require_configured()
-    from langchain_core.messages import SystemMessage, HumanMessage
-    llm = ChatDatabricks(endpoint=endpoint_name, temperature=0.0, max_tokens=1500)
-    agent = create_react_agent(llm, tools)
+    from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
     
+    llm = ChatDatabricks(endpoint=endpoint_name, temperature=0.0, max_tokens=1500)
+    llm_with_tools = llm.bind_tools(tools)
+    recursion_limit = 2 * max_iterations + 1
+    
+    # Define agent state
+    class AgentState(TypedDict):
+        messages: Annotated[Sequence[BaseMessage], operator.add]
+    
+    # Agent node: call LLM with tools
+    def call_model(state: AgentState):
+        messages = state["messages"]
+        response = llm_with_tools.invoke(messages)
+        return {"messages": [response]}
+    
+    # Tool node: execute tool calls from LLM response
+    def call_tools(state: AgentState):
+        messages = state["messages"]
+        last_message = messages[-1]
+        tool_results = []
+        
+        # Execute each tool call
+        for tool_call in last_message.tool_calls:
+            # Find the matching tool
+            tool_fn = next((t for t in tools if t.name == tool_call["name"]), None)
+            if tool_fn:
+                try:
+                    result = tool_fn.invoke(tool_call["args"])
+                    tool_results.append(
+                        ToolMessage(content=str(result), tool_call_id=tool_call["id"])
+                    )
+                except Exception as e:
+                    tool_results.append(
+                        ToolMessage(content=f"Error: {str(e)}", tool_call_id=tool_call["id"])
+                    )
+        
+        return {"messages": tool_results}
+    
+    # Routing function: should we continue or end?
+    def should_continue(state: AgentState):
+        messages = state["messages"]
+        last_message = messages[-1]
+        # If there are tool calls, continue to tools node
+        if hasattr(last_message, "tool_calls") and last_message.tool_calls:
+            return "tools"
+        # Otherwise, we're done
+        return END
+    
+    # Build the graph
+    workflow = StateGraph(AgentState)
+    workflow.add_node("agent", call_model)
+    workflow.add_node("tools", call_tools)
+    workflow.set_entry_point("agent")
+    workflow.add_conditional_edges("agent", should_continue, {"tools": "tools", END: END})
+    workflow.add_edge("tools", "agent")
+    
+    agent = workflow.compile()
+
     # Wrap for compatibility with existing .invoke() API and system prompt injection
     class AgentWrapper:
-        def __init__(self, agent, system_prompt):
+        def __init__(self, agent, system_prompt, recursion_limit, verbose):
             self._agent = agent
             self._system_prompt = system_prompt
+            self._config = {"recursion_limit": recursion_limit}
+            self._verbose = verbose
+        
         def invoke(self, input_dict):
             messages = [
                 SystemMessage(content=self._system_prompt),
                 HumanMessage(content=input_dict["input"])
             ]
-            result = self._agent.invoke({"messages": messages})
+            result = self._agent.invoke({"messages": messages}, config=self._config)
+            if self._verbose:
+                for m in result["messages"]:
+                    if hasattr(m, "pretty_print"):
+                        m.pretty_print()
             return {"output": result["messages"][-1].content}
-    return AgentWrapper(agent, SYSTEM_PROMPT)
+    
+    return AgentWrapper(agent, SYSTEM_PROMPT, recursion_limit, verbose)
  
  
 def extract_json(text) -> dict:
