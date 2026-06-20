@@ -37,7 +37,7 @@ The goal is to cut the hours staff spend on intake that never converts, and let 
 |-------|-------|
 | LLMs | Claude 4.6 Sonnet (primary), GPT-4.1 (benchmark) |
 | Orchestration | LangChain (ReAct executor) |
-| Infrastructure | Databricks — Delta Tables, Vector Search, Mosaic AI |
+| Infrastructure | Databricks — Delta Tables, Vector Search|
 | Tracing & Eval | MLflow |
 | Version Control | GitHub |
 
