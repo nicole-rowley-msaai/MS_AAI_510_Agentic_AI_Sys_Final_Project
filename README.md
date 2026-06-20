@@ -25,7 +25,7 @@ The goal is to cut the hours staff spend on intake that never converts, and let 
 ## Dataset
 
 **LEDGAR** (LexGLUE Benchmark Suite)
-- ~80,000 contractual provisions from SEC EDGAR filings
+- 60,000 contractual provisions from SEC EDGAR filings
 - Labeled across 100 legal provision categories
 - Grounds the agent's retrieval and classification pipeline via Databricks Vector Search
 
