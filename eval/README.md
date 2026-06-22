@@ -1,6 +1,63 @@
+## Evaluation Framework
+
+The evaluation pipeline provides comprehensive assessment of the LexPath Intake Agent across multiple dimensions: safety (conflict detection), business value (practice-area routing), diagnostic metrics (category classification), operational metrics (latency and cost), and qualitative assessment (LLM-as-a-Judge framework).
+
+---
+
+## Notebook: 03_evaluation
+
+The **03_evaluation** notebook implements a complete benchmarking and ROI analysis workflow. It executes the LexPath Intake Agent against a held-out test set and compares performance across multiple LLM backends using a layered evaluation strategy.
+
+### What This Notebook Does
+
+1. **Routing Evaluation**: Executes both Claude Sonnet 4.6 and GPT-4.1 models against LEDGAR test split (configurable N rows, default 100 per model) with concurrent execution for fair comparison.
+
+2. **Conflict Detection Evaluation**: Tests the agent's ability to identify conflicts from a constructed labeled set combining known conflict cases (`lexpath_conflicts`) with verified clean names, ensuring the safety gate functions correctly.
+
+3. **LLM Judge Quality Assessment**: Applies four independent judge models (powered by Claude endpoint) that score successful agent responses across:
+   - Legal compliance and boundary adherence
+   - Information completeness and intake quality
+   - Professional tone and communication
+   - Response structure and JSON validity
+
+4. **Benchmark Traces**: Logs MLflow traces for five scenarios on Claude and one comparative GPT-4.1 run, capturing token usage, latency, and agent behavior for detailed analysis.
+
+5. **ROI Calculation**: Implements an effectiveness-weighted capacity recovery model that balances practice-area routing accuracy (F1) against LLM token costs, enabling business-driven deployment decisions.
+
+6. **Deployment Recommendation**: Applies a metric hierarchy with a safety gate (conflict recall ≥ 0.95) to determine which model to deploy, or warns if none qualify.
+
+### Key Configuration (Widgets)
+
+* **Models**: `claude_endpoint` (Anthropic Claude Sonnet 4.6), `gpt41_endpoint` (OpenAI GPT-4.1)
+* **Eval Size**: `n_eval` (default 100 rows per model) — each row is a full agentic intake call; budget 20–60 min per model
+* **Safety Threshold**: `conflict_tpr_gate` (default 0.95) — minimum conflict recall to pass
+* **Pricing**: `claude_price_in`, `claude_price_out`, `gpt41_price_in`, `gpt41_price_out` (USD per 1M tokens)
+* **ROI Assumptions**: `n_attorneys`, `billing_rate`, `hours_recovered`, `intakes_per_week`
+
+### Metric Hierarchy
+
+Deployment decisions apply metrics in priority order:
+
+1. **Conflict-Detection Recall (TPR ≥ 0.95) — Safety Gate**  
+   Missed conflicts create malpractice/ethics exposure. Models must clear this threshold to be eligible for deployment.
+
+2. **Practice-Area Macro-F1 — Primary Routing Quality**  
+   Macro-averaging prevents the `Corporate` catch-all from inflating scores; reflects balanced accuracy across all practice areas.
+
+3. **LEDGAR Category Match — Diagnostic Only**  
+   100 imbalanced classes with free-form output. Exact match used for relative model comparison, not absolute quality assessment.
+
+4. **LLM Judge Quality Scores — Qualitative Assessment**  
+   Assess legal compliance, information completeness, professional tone, and response structure on successful responses.
+
+5. **Latency, Cost, ROI — Economics and Tie-Breakers**  
+   Mean and p90 latency, per-intake cost, and effectiveness-weighted ROI inform operational feasibility.
+
+---
+
 ## LLM-as-a-Judge Evaluation Framework
 
-In addition to benchmark metrics, the LexPath Intake Agent is evaluated using an **LLM-as-a-Judge framework** implemented through MLflow GenAI evaluation. This approach enables automated assessment of response quality, legal safety, and structured output generation using a separate large language model acting as an evaluator.
+In addition to benchmark metrics, the LexPath Intake Agent is evaluated using an **LLM-as-a-Judge framework** implemented through MLflow GenAI evaluation. This approach enables automated assessment of agent outputs against predefined rubrics, capturing qualitative dimensions that traditional metrics miss.
 
 ### Evaluation Methodology
 
@@ -77,7 +134,7 @@ The evaluation pipeline passes these judges directly into `mlflow.genai.evaluate
 3. The judge model independently scores each response across all evaluation dimensions.
 4. Average judge scores are recorded as MLflow metrics and displayed alongside trace-level analytics.
 
-This approach complements traditional performance metrics such as classification accuracy, conflict-detection recall, latency, and cost by providing a qualitative assessment of legal safety, completeness, professionalism, and output reliability.
+This approach complements traditional performance metrics such as classification accuracy, conflict-detection recall, latency, and cost by providing a qualitative assessment of legal safety, completeness, and professionalism.
 
 ### Relationship to Benchmark Metrics
 
@@ -89,4 +146,4 @@ The project uses a layered evaluation strategy:
 4. **Latency and Cost Metrics** — Operational metrics.
 5. **LLM-as-a-Judge Scores** — Qualitative assessment of response quality and legal compliance.
 
-Together, these measures provide a comprehensive view of both agent performance and user-facing behavior, ensuring that strong quantitative results are accompanied by safe, professional, and reliable interactions.
+Together, these measures provide a comprehensive view of both agent performance and user-facing behavior, ensuring that strong quantitative results are accompanied by safe, professional, and reliable responses.
