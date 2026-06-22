@@ -1,6 +1,35 @@
-## System Prompt
+Here's a more cohesive GitHub README approach. Rather than creating a separate "Prompt Design Rationale" section, integrate the exact system prompt into the architecture documentation so readers understand both *what the agent does* and *how it is instructed to behave*.
 
-The LexPath AI Intake Agent was evaluated using the following system prompt:
+# Agent
+
+This directory contains the agent implementation, helper library, and evaluation artifacts for the Agentic AI Systems final project. The LexPath AI Intake Agent is a legal intake and routing assistant that uses a ReAct-style workflow, Retrieval-Augmented Generation (RAG), conflict checking, and practice-area routing to triage prospective client matters. All runs are traced using MLflow for evaluation and reproducibility.
+
+## Contents
+
+* `02a_build_agent.ipynb` — Builds the agent, tools, prompts, and workflow.
+* `02b_run_agent.ipynb` — Executes the agent and records MLflow traces.
+* `agent_lib.py` — Shared helper library containing tool definitions, prompts, utilities, and evaluation helpers.
+* `README.md` — Project documentation.
+
+---
+
+# Agent Objective
+
+The LexPath AI Intake Agent assists law firms by:
+
+1. Summarizing prospective client matters.
+2. Classifying matters into a legal category using the LEDGAR taxonomy.
+3. Performing conflict checks when parties are identified.
+4. Routing matters to the appropriate legal practice area.
+5. Escalating all recommendations to human legal professionals for review.
+
+The system is intentionally limited to intake and routing tasks. It does **not** provide legal advice and does **not** establish an attorney-client relationship.
+
+---
+
+# System Prompt
+
+The following system prompt governs agent behavior and remained unchanged throughout evaluation. During model comparisons, only the underlying LLM endpoint changed (Claude Sonnet 4.6 vs. GPT-4.1); prompts, tools, retrieval corpus, routing logic, and evaluation methodology were held constant.
 
 ```python
 SYSTEM_PROMPT = """
@@ -51,17 +80,125 @@ Edge cases:
 """
 ```
 
-### Prompt Design Rationale
+---
 
-This prompt enforces several key safety and workflow requirements:
+# Agent Workflow
 
-* The agent performs intake and routing only and never provides legal advice.
-* Retrieval is mandatory before classification to improve grounding and consistency.
-* Conflict checks occur only when identifiable parties are provided.
-* Case routing is separated from classification through a dedicated routing tool.
-* All outputs are machine-readable JSON for downstream processing and human review.
-* Ambiguous matters trigger clarification rather than unsupported assumptions.
-* Non-intake requests are rejected without tool use.
-* Potential conflicts are surfaced to human reviewers rather than automatically blocking intake.
+The system prompt directly maps to the agent workflow:
 
-This prompt remained constant across all model evaluations. When comparing Claude Sonnet 4.6 and GPT-4.1, only the underlying LLM endpoint changed; prompts, tools, retrieval corpus, routing logic, and evaluation methodology were held constant.
+```text
+Client Intake
+      │
+      ▼
+Semantic Retrieval
+(Vector Search / LEDGAR Corpus)
+      │
+      ▼
+LEDGAR Classification
+      │
+      ├── Named Parties Present?
+      │         │
+      │         ├── Yes → Conflict Check
+      │         └── No  → Skip
+      │
+      ▼
+Case Routing
+      │
+      ▼
+Structured JSON Output
+      │
+      ▼
+Human Legal Review
+```
+
+---
+
+# Tool Architecture
+
+### 1. Semantic Retrieval
+
+Retrieves semantically similar legal provisions from the LEDGAR corpus to ground classification decisions in relevant legal language and precedent.
+
+### 2. Conflict Check
+
+Checks identified parties against known matters and clients to flag potential conflicts of interest for human review.
+
+### 3. Case Routing
+
+Maps LEDGAR categories to firm practice areas and supports efficient intake triage.
+
+---
+
+# Output Schema
+
+All successful agent responses follow a structured JSON contract:
+
+```json
+{
+  "status": "",
+  "issue_summary": "",
+  "predicted_category": "",
+  "practice_area": "",
+  "parties": [],
+  "conflict_status": "",
+  "conflict_matches": [],
+  "clarifying_questions": [],
+  "routing_rationale": ""
+}
+```
+
+This schema enables downstream automation, storage, evaluation, and human review.
+
+---
+
+# Evaluation and Tracing
+
+Every interaction is captured using MLflow Tracing.
+
+Recorded metadata includes:
+
+* Reasoning steps
+* Tool calls
+* Tool outputs
+* Latency
+* Token usage
+* Final agent responses
+
+Benchmark scenarios evaluate:
+
+* Standard legal intake
+* Conflict detection
+* Employment dispute intake
+* Vague intake requiring clarification
+* Out-of-scope legal advice requests
+
+The same workflow was evaluated using both Claude Sonnet 4.6 and GPT-4.1 to compare performance while controlling for all other variables.
+
+---
+
+# Requirements
+
+Suggested environment:
+
+* Python 3.10+
+* Databricks Runtime
+* MLflow
+* LangChain
+* OpenAI SDK
+* Anthropic SDK
+* Pandas
+* NumPy
+
+```bash
+pip install mlflow langchain openai anthropic pandas numpy
+```
+
+---
+
+# Disclaimer
+
+This project was developed for educational and research purposes as part of a graduate-level Agentic AI Systems course.
+
+The LexPath AI Intake Agent performs legal intake classification and routing only. It does not provide legal advice, establish an attorney-client relationship, or replace review by a licensed attorney.
+
+This structure reads more naturally for GitHub reviewers because the prompt is presented as the central specification that drives the architecture, rather than as an isolated appendix.
