@@ -198,5 +198,3 @@ pip install mlflow langchain openai anthropic pandas numpy
 This project was developed for educational and research purposes as part of a graduate-level Agentic AI Systems course.
 
 The LexPath AI Intake Agent performs legal intake classification and routing only. It does not provide legal advice, establish an attorney-client relationship, or replace review by a licensed attorney.
-
-This structure reads more naturally for GitHub reviewers because the prompt is presented as the central specification that drives the architecture, rather than as an isolated appendix.
