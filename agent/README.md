@@ -1,5 +1,3 @@
-Here's a more cohesive GitHub README approach. Rather than creating a separate "Prompt Design Rationale" section, integrate the exact system prompt into the architecture documentation so readers understand both *what the agent does* and *how it is instructed to behave*.
-
 # Agent
 
 This directory contains the agent implementation, helper library, and evaluation artifacts for the Agentic AI Systems final project. The LexPath AI Intake Agent is a legal intake and routing assistant that uses a ReAct-style workflow, Retrieval-Augmented Generation (RAG), conflict checking, and practice-area routing to triage prospective client matters. All runs are traced using MLflow for evaluation and reproducibility.
